@@ -1,0 +1,20 @@
+services:
+  airflow:
+    image: apache/airflow:3.1.5
+    container_name: media_airflow
+    command: airflow standalone
+
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://media_user:${POSTGRES_PASSWORD}@postgres:5432/airflow
+
+    ports:
+      - "8080:8080"
+
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+
+    depends_on:
+      postgres:
+        condition: service_healthy
