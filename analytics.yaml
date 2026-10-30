@@ -1,0 +1,91 @@
+# Словари для обогащения публикаций (src/transform/enrich.py).
+#
+# Термины категорий записываются словами в обычной форме, они проходят ту же
+# лемматизацию, что и текст, поэтому "менеджер паролей" найдёт и
+# "менеджеров паролей". Балл категории: вхождение в заголовок даёт
+# title_weight, в текст 1. Категория присваивается при score >= min_score.
+
+min_score: 2
+title_weight: 2
+
+categories:
+  security_software:
+    name: Защитное ПО и антивирусы
+    terms: [антивирус, антивирусный, антивирусник, вирус, вредоносный, троян, малварь,
+            сканер, фаервол, firewall, брандмауэр, защита устройства, уязвимость]
+  passwords_encryption:
+    name: Пароли и шифрование
+    terms: [пароль, менеджер паролей, шифрование, шифровать, криптозащита, зашифровать,
+            двухфакторный, аутентификация, электронная подпись]
+  surveillance_privacy:
+    name: Слежка и приватность
+    terms: [слежка, шпион, шпионский, логгер, перехват, отслеживание, приватность,
+            конфиденциальный, удаленный контроль, персональные данные, прослушка,
+            шпионить, отслеживать, скрытый]
+  fraud:
+    name: Мошенничество и обман
+    terms: [мошенник, мошенничество, мошеннический, обман, обманывать, развод, фишинг,
+            навязать, навязанный]
+  finance_banking:
+    name: Банки и финансы
+    terms: [банк, вклад, кредит, кредитный, накопительный счет, кэшбэк, процент, ставка,
+            дебетовая карта, банковский, розыгрыш, лотерея]
+  travel:
+    name: Путешествия и бронирование
+    terms: [билет, авиабилет, рейс, отель, бронирование, бронировать, багаж, авиакомпания,
+            поездка]
+  customer_service:
+    name: Сервис и поддержка клиентов
+    # "поддержка" и "сервис" без уточнения не подходят: на форуме это
+    # поддержка функций и облачные сервисы
+    terms: [служба поддержки, техподдержка, техническая поддержка, возврат, вернуть деньги,
+            оператор, претензия, жалоба, горячая линия]
+  auto:
+    name: Автомобили и транспорт
+    # "машина" не входит: срабатывает на "машинное обучение"
+    terms: [автомобиль, мотор, двигатель, шина, кроссовер, седан, бензин, пробег,
+            водитель, электромобиль, грузовик]
+
+# Бренды ищутся регулярными выражениями по тексту в нижнем регистре.
+# group: security_vendor - конкуренты на рынке защитного ПО.
+brands:
+  Kaspersky: {group: security_vendor, patterns: ['kaspersky', 'касперск']}
+  Dr.Web: {group: security_vendor, patterns: ['dr\.?\s?web', 'доктор\s?веб']}
+  ESET: {group: security_vendor, patterns: ['\beset\b', 'nod\s?32']}
+  Bitdefender: {group: security_vendor, patterns: ['bitdefender']}
+  Avast: {group: security_vendor, patterns: ['\bavast', 'аваст']}
+  AVG: {group: security_vendor, patterns: ['\bavg\b']}
+  Norton: {group: security_vendor, patterns: ['\bnorton', 'нортон']}
+  McAfee: {group: security_vendor, patterns: ['mcafee']}
+  Avira: {group: security_vendor, patterns: ['\bavira']}
+  Malwarebytes: {group: security_vendor, patterns: ['malwarebytes']}
+  Microsoft Defender: {group: security_vendor, patterns: ['windows defender', 'microsoft defender', 'защитник windows']}
+  Positive Technologies: {group: security_vendor, patterns: ['positive technologies', 'позитив текнолоджиз']}
+  F.A.C.C.T.: {group: security_vendor, patterns: ['f\.a\.c\.c\.t', '\bfacct\b', 'group-ib']}
+
+  Bitwarden: {group: password_manager, patterns: ['bitwarden']}
+  KeePass: {group: password_manager, patterns: ['keepass']}
+  1Password: {group: password_manager, patterns: ['1password']}
+  Enpass: {group: password_manager, patterns: ['\benpass']}
+  SafeInCloud: {group: password_manager, patterns: ['safeincloud']}
+
+  Сбер: {group: bank, patterns: ['\bсбер(?:банк\w*|а|у|ом|е)?\b', '\bsber(?:bank)?\b']}
+  Т-Банк: {group: bank, patterns: ['т-банк', 'тинькофф', 'tinkoff', 't-bank']}
+  ВТБ: {group: bank, patterns: ['\bвтб\b']}
+  Альфа-Банк: {group: bank, patterns: ['альфа-банк', 'альфабанк']}
+  ПСБ: {group: bank, patterns: ['\bпсб\b']}
+  МТС Банк: {group: bank, patterns: ['мтс[- ]банк']}
+  Ozon: {group: marketplace, patterns: ['\bozon\b', '\bозон(?:а|у|ом|е)?\b']}
+
+# Леммы, которые не несут смысла как ключевые слова
+stop_lemmas: [год, время, человек, раз, день, месяц, вопрос, результат, случай, место,
+              ряд, часть, вид, тысяча, рубль, км, это, всё, весь, который, свой, такой,
+              момент, плюс, минус, итог, пример, сторона, слово, дело, отзыв, версия,
+              руб, число, the, and, for, with, your, you, are, from, this, that, not,
+              all, can, our, its, app,
+              # служебные слова форума и списков версий на 4PDA
+              пост, pro, paid, free, key, mod, beta, apk, number, one, version]
+
+keywords_per_publication: 10
+# Порог Жаккара по шинглам из 5 слов, выше которого тексты считаются дублями
+duplicate_threshold: 0.7

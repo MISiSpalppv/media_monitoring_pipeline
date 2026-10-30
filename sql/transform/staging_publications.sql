@@ -29,7 +29,8 @@ INSERT INTO staging.publications (
     published_at_raw,
     text,
     quality_flags,
-    extraction
+    extraction,
+    metadata
 )
 SELECT
     id,
@@ -46,7 +47,8 @@ SELECT
     COALESCE(payload ->> 'published_at_raw', payload ->> 'published_at'),
     NULLIF(BTRIM(payload ->> 'text'), ''),
     COALESCE(payload -> 'quality_flags', '[]'::JSONB),
-    COALESCE(payload -> 'extraction', '{}'::JSONB)
+    COALESCE(payload -> 'extraction', '{}'::JSONB),
+    COALESCE(payload -> 'metadata', '{}'::JSONB)
 FROM latest
 ON CONFLICT (publication_url) DO UPDATE SET
     raw_id = EXCLUDED.raw_id,
@@ -60,5 +62,6 @@ ON CONFLICT (publication_url) DO UPDATE SET
     text = EXCLUDED.text,
     quality_flags = EXCLUDED.quality_flags,
     extraction = EXCLUDED.extraction,
+    metadata = EXCLUDED.metadata,
     transformed_at = NOW()
 WHERE staging.publications.content_hash IS DISTINCT FROM EXCLUDED.content_hash;
