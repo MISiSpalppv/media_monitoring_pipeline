@@ -1,9 +1,0 @@
-CREATE SCHEMA IF NOT EXISTS raw;
-
-CREATE TABLE IF NOT EXISTS raw.publications (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    source_url TEXT NOT NULL,
-    publication_url TEXT NOT NULL,
-    payload JSONB NOT NULL,
-    fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);

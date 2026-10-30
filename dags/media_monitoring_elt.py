@@ -1,17 +1,10 @@
-import os
-import subprocess
-from pathlib import Path
-import json
+from datetime import timedelta
 
-import psycopg
+from airflow.exceptions import AirflowFailException
 from airflow.sdk import dag, task
 from pendulum import datetime
 
-from src.load.postgres import load_publications
-
-
-BASE_DIR = Path("/opt/airflow")
-OUTPUT_FILE = "data/processed/irecommend_airflow.json"
+from src import pipeline
 
 
 @dag(
@@ -19,63 +12,55 @@ OUTPUT_FILE = "data/processed/irecommend_airflow.json"
     start_date=datetime(2026, 10, 30, tz="UTC"),
     schedule=None,
     catchup=False,
+    max_active_runs=1,
     tags=["media-monitoring", "elt"],
 )
 def media_monitoring_elt():
     @task
-    def extract():
-        command = [
-            "python",
-            "-m",
-            "scrapy",
-            "runspider",
-            str(BASE_DIR / "src/extract/irecommend_spider.py"),
-            "-O",
-            str(BASE_DIR / OUTPUT_FILE),
-            "-s",
-            "LOG_LEVEL=INFO",
-        ]
+    def start(**context) -> list[str]:
+        run_id = pipeline.make_run_id(context["run_id"])
+        return pipeline.start_run(run_id, airflow_run_id=context["run_id"])
 
-        subprocess.run(
-            command,
-            cwd=BASE_DIR,
-            check=True,
-        )
+    @task(
+        retries=2,
+        retry_delay=timedelta(minutes=1),
+        retry_exponential_backoff=True,
+        max_retry_delay=timedelta(minutes=10),
+    )
+    def extract(source_id: str, **context) -> str:
+        run_id = pipeline.make_run_id(context["run_id"])
+        summary = pipeline.extract_source(source_id, run_id, attempt=context["ti"].try_number)
+        status, reason = summary["status"], summary.get("reason")
 
-        output_path = BASE_DIR / OUTPUT_FILE
-        publications = json.loads(output_path.read_text(encoding="utf-8"))
+        if status == "success":
+            return status
+        # Страница загрузилась, но публикаций нет: повтор не поможет
+        if status == "empty":
+            raise AirflowFailException(f"{source_id}: empty, {reason}")
+        # unavailable и failed могут быть временными, Airflow повторит задачу
+        raise RuntimeError(f"{source_id}: {status}, {reason}")
 
-        if not publications:
-            raise RuntimeError(
-                "EXTRACT failed: Scrapy collected 0 publications. "
-                "Check HTTP responses and spider logs."
-            )
-
-        print(f"Extracted publications: {len(publications)}")
-
-        return OUTPUT_FILE
+    # Загрузка идёт, если хотя бы один источник успешен: какие именно,
+    # load_run берёт из ops.source_runs. Если успешных нет, задача падает.
+    @task(trigger_rule="all_done")
+    def load_raw(**context) -> int:
+        return pipeline.load_run(pipeline.make_run_id(context["run_id"]))
 
     @task
-    def load_raw(file_path: str):
-        return load_publications(file_path)
+    def transform_staging(**context) -> int:
+        return pipeline.transform_run(pipeline.make_run_id(context["run_id"]))
 
-    @task
-    def transform_staging(_loaded_count: int):
-        sql = (BASE_DIR / "sql/002_staging.sql").read_text(
-            encoding="utf-8"
-        )
+    @task(trigger_rule="all_done")
+    def finish(**context) -> str:
+        status = pipeline.finish_run(pipeline.make_run_id(context["run_id"]))
+        if status == "failed":
+            raise AirflowFailException("pipeline run failed, see ops.source_runs")
+        return status
 
-        with psycopg.connect(
-            host=os.environ["POSTGRES_HOST"],
-            dbname=os.environ["POSTGRES_DB"],
-            user=os.environ["POSTGRES_USER"],
-            password=os.environ["POSTGRES_PASSWORD"],
-        ) as connection:
-            connection.execute(sql)
-
-        return "STAGING transformation completed"
-
-    transform_staging(load_raw(extract()))
+    sources = start()
+    extracted = extract.expand(source_id=sources)
+    staged = transform_staging()
+    extracted >> load_raw() >> staged >> finish()
 
 
 media_monitoring_elt()

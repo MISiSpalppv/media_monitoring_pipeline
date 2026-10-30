@@ -1,89 +1,70 @@
 import json
-import os
 from pathlib import Path
 
-import psycopg
 from psycopg.types.json import Jsonb
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
-
-def load_env():
-    required = ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB")
-
-    if all(os.getenv(key) for key in required):
-        return
-
-    env_path = PROJECT_ROOT / ".env"
-
-    if not env_path.is_file():
-        raise RuntimeError(
-            "PostgreSQL environment variables are missing "
-            "and .env file was not found"
-        )
-
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-
-        key, value = line.split("=", 1)
-        os.environ.setdefault(
-            key.strip(),
-            value.strip().strip('"').strip("'"),
-        )
-
-    missing = [key for key in required if not os.getenv(key)]
-
-    if missing:
-        raise RuntimeError(
-            f"Missing PostgreSQL environment variables: {missing}"
-        )
+from src.config import PROJECT_ROOT
+from src.db.connection import connect
 
 
-def load_publications(file_path: str) -> int:
-    """Загружает JSON-записи в RAW-слой PostgreSQL."""
-    load_env()
+# Одна команда на весь файл. Конфликт по (URL, хэш) означает, что такая
+# версия публикации уже есть, и строка пропускается.
+INSERT_RAW = """
+    INSERT INTO raw.publications (
+        source_id,
+        run_id,
+        source_url,
+        publication_url,
+        content_hash,
+        payload,
+        fetched_at
+    )
+    SELECT
+        r ->> 'source_id',
+        r ->> 'run_id',
+        r ->> 'source_url',
+        r ->> 'url',
+        r ->> 'content_hash',
+        r,
+        (r ->> 'fetched_at')::TIMESTAMPTZ
+    FROM jsonb_array_elements(%s) AS r
+    ON CONFLICT (publication_url, content_hash) DO NOTHING
+"""
 
-    path = PROJECT_ROOT / file_path
-    publications = json.loads(path.read_text(encoding="utf-8"))
+TRANSFORM_STAGING = PROJECT_ROOT / "sql" / "transform" / "staging_publications.sql"
 
-    connection_params = {
-        "host": os.getenv("POSTGRES_HOST", "localhost"),
-        "port": 5432,
-        "dbname": os.environ["POSTGRES_DB"],
-        "user": os.environ["POSTGRES_USER"],
-        "password": os.environ["POSTGRES_PASSWORD"],
-    }
 
-    query = """
-        INSERT INTO raw.publications (
-            source_url,
-            publication_url,
-            payload
-        )
-        VALUES (%s, %s, %s)
-    """
+def read_jsonl(path: Path) -> list[dict]:
+    with path.open(encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
 
-    with psycopg.connect(**connection_params) as connection:
-        with connection.cursor() as cursor:
-            for publication in publications:
-                cursor.execute(
-                    query,
-                    (
-                        publication["source_url"],
-                        publication["url"],
-                        Jsonb(publication),
-                    ),
-                )
 
-    return len(publications)
+def load_publications(conn, file_path: str | Path) -> int:
+    """Загружает JSONL с публикациями в RAW. Возвращает число новых строк."""
+    path = Path(file_path)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+
+    records = read_jsonl(path)
+    if not records:
+        return 0
+
+    return conn.execute(INSERT_RAW, (Jsonb(records),)).rowcount
+
+
+def transform_staging(conn) -> int:
+    """Обновляет STAGING из RAW. Возвращает число вставленных/изменённых строк."""
+    sql = TRANSFORM_STAGING.read_text(encoding="utf-8")
+    return conn.execute(sql).rowcount
 
 
 if __name__ == "__main__":
-    count = load_publications(
-        "data/processed/irecommend_batch_test.json"
-    )
-    print(f"Загружено записей в RAW: {count}")
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("file", help="JSONL с публикациями")
+    args = parser.parse_args()
+
+    with connect() as conn:
+        count = load_publications(conn, args.file)
+    print(f"Загружено новых записей в RAW: {count}")

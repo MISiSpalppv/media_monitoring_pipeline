@@ -2,7 +2,6 @@ FROM apache/airflow:3.1.5
 
 USER airflow
 
-RUN pip install --no-cache-dir \
-    scrapy \
-    trafilatura \
-    "psycopg[binary]"
+COPY requirements.txt /tmp/requirements.txt
+
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
