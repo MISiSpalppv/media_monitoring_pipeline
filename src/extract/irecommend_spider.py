@@ -28,37 +28,28 @@ class IRecommendSpider(scrapy.Spider):
             self.logger.warning("Карточки отзывов не найдены")
             return
 
-        card = cards[0]
+        for card in cards:
+            links = card.css('a[href*="/content/"]')
 
-        links = card.css('a[href*="/content/"]')
+            main_link = max(
+                links,
+                key=lambda link: len(
+                    " ".join(link.css("::text").getall()).strip()
+                ),
+                default=None
+            )
 
+            if main_link is None:
+                continue
 
-        main_link = max(
-            links,
-            key=lambda link: len(
-                " ".join(link.css("::text").getall()).strip()
-            ),
-            default=None
-        )
+            review_url = response.urljoin(
+                main_link.attrib["href"]
+            )
 
-        if main_link is None:
-            self.logger.warning("Ссылка на отзыв не найдена")
-            return
-
-        review_url = response.urljoin(
-            main_link.attrib["href"]
-        )
-
-        self.logger.info(
-            "Загружаем полный отзыв: %s",
-            review_url
-        )
-
-        # Переходим на страницу отдельного отзыва
-        yield response.follow(
-            review_url,
-            callback=self.parse_review
-        )
+            yield response.follow(
+                review_url,
+                callback=self.parse_review
+            )
 
     def parse_review(self, response):
         author = " ".join(
