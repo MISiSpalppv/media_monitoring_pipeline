@@ -4,7 +4,7 @@ import json
 import trafilatura
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 html = (PROJECT_ROOT / "data" / "raw" / "irecommend.html").read_text(encoding="utf-8")
 
 result = trafilatura.extract(

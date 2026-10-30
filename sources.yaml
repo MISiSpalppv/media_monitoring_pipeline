@@ -1,0 +1,40 @@
+# Описание источников. Новый источник добавляется сюда же, код паука не меняется.
+#
+# Обязательные поля: id, start_urls.
+# discovery.mode: links (ссылки со страницы-листинга), rss, sitemap.
+# field_priority: порядок методов для поля, по умолчанию [trafilatura, css].
+
+defaults:
+  enabled: true
+  timezone: Europe/Moscow
+  download_delay: 2
+  min_text_length: 200
+  max_pages: 1
+  max_items: 20
+  future_tolerance_hours: 24
+
+sources:
+  - id: livejournal_5koleso
+    name: LiveJournal, блог «5 Колесо»
+    source_type: blog
+    start_urls:
+      - https://5koleso.livejournal.com/
+    # robots.txt источника: Crawl-delay: 10
+    download_delay: 10
+    max_pages: 2
+    discovery:
+      mode: links
+      area: article.entryunit h3.entryunit__title
+      link_pattern: '^https://5koleso\.livejournal\.com/\d+\.html$'
+      next_page: .j-page-nav-item-prev a::attr(href)
+    selectors:
+      title: h1.aentry-post__title
+      text: .aentry-post__text
+      author: .aentry-head__username .ljuser
+      published_at: .aentry-head__date time
+    # Trafilatura не находит автора и отдаёт дату без времени.
+    field_priority:
+      author: [css, trafilatura]
+      published_at: [css, trafilatura]
+    text_cut_markers:
+      - "Что еще почитать:"
