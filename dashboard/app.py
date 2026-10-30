@@ -258,8 +258,10 @@ def topics_tab(selected: pd.DataFrame, categories: pd.DataFrame, keywords: pd.Da
         cats.merge(selected[["publication_id", "source_name"]], on="publication_id")
         .groupby(["category_name", "source_name"]).size().reset_index(name="publications")
     )
+    # в шапке карты полные названия не помещаются: "4PDA, форум «Безопасность»" -> "4PDA"
+    by_source["source_short"] = by_source["source_name"].str.split(",").str[0]
     heatmap = alt.Chart(by_source).mark_rect().encode(
-        x=alt.X("source_name:N", title=None, axis=alt.Axis(labelAngle=0, labelLimit=260, labelOverlap=False, orient="top")),
+        x=alt.X("source_short:N", title=None, axis=alt.Axis(labelAngle=0, labelOverlap=False, orient="top")),
         y=alt.Y("category_name:N", title=None, axis=alt.Axis(labelLimit=250)),
         color=alt.Color("publications:Q", title="Публикаций", scale=alt.Scale(scheme="blues")),
         tooltip=[alt.Tooltip("category_name:N", title="Тема"), alt.Tooltip("source_name:N", title="Источник"),
