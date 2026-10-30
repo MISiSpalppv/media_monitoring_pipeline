@@ -10,8 +10,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def load_env():
-    """Загружает переменные подключения из локального .env."""
+    required = ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB")
+
+    if all(os.getenv(key) for key in required):
+        return
+
     env_path = PROJECT_ROOT / ".env"
+
+    if not env_path.is_file():
+        raise RuntimeError(
+            "PostgreSQL environment variables are missing "
+            "and .env file was not found"
+        )
 
     for line in env_path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -20,7 +30,17 @@ def load_env():
             continue
 
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        os.environ.setdefault(
+            key.strip(),
+            value.strip().strip('"').strip("'"),
+        )
+
+    missing = [key for key in required if not os.getenv(key)]
+
+    if missing:
+        raise RuntimeError(
+            f"Missing PostgreSQL environment variables: {missing}"
+        )
 
 
 def load_publications(file_path: str) -> int:
@@ -31,7 +51,7 @@ def load_publications(file_path: str) -> int:
     publications = json.loads(path.read_text(encoding="utf-8"))
 
     connection_params = {
-        "host": "localhost",
+        "host": os.getenv("POSTGRES_HOST", "localhost"),
         "port": 5432,
         "dbname": os.environ["POSTGRES_DB"],
         "user": os.environ["POSTGRES_USER"],

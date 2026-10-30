@@ -1,12 +1,22 @@
 services:
   airflow:
-    image: apache/airflow:3.1.5
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    image: media-airflow:local
     container_name: media_airflow
     command: airflow standalone
 
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://media_user:${POSTGRES_PASSWORD}@postgres:5432/airflow
+      PYTHONPATH: /opt/airflow
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+
+
 
     ports:
       - "8080:8080"
@@ -14,6 +24,9 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
+      - ./src:/opt/airflow/src:ro
+      - ./sql:/opt/airflow/sql:ro
+      - ./data:/opt/airflow/data
 
     depends_on:
       postgres:
