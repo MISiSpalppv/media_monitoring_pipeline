@@ -38,3 +38,29 @@ sources:
       published_at: [css, trafilatura]
     text_cut_markers:
       - "Что еще почитать:"
+
+  - id: irecommend
+    name: iRecommend, отзывы об Ozon.travel
+    source_type: reviews
+    start_urls:
+      - https://irecommend.ru/content/sait-ozontravel-0
+    # С 30.10.2026 сайт отвечает 521 на все запросы, включая robots.txt.
+    # Источник остаётся включённым: каждый запуск проверяет доступность
+    # и получает статус unavailable. Пагинация не настроена, пока сайт
+    # недоступен, её не проверить.
+    discovery:
+      mode: links
+      area: div.reviews-list-item
+      link_pattern: '^https://irecommend\.ru/content/(?!sait-ozontravel-0$)[^/?#]+$'
+    selectors:
+      title: h2.reviewTitle a
+      text: .reviewText
+      author: .reviewHeader .reviewer
+      published_at: .reviewHeader .dtreviewed
+    # Селекторы проверены на страницах отзывов до блокировки, Trafilatura
+    # на отдельном отзыве не проверялась, поэтому CSS идёт первым.
+    field_priority:
+      title: [css, trafilatura]
+      text: [css, trafilatura]
+      author: [css, trafilatura]
+      published_at: [css, trafilatura]
