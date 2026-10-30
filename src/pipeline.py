@@ -17,6 +17,18 @@ from src.config import PROJECT_ROOT, load_sources
 from src.db.connection import connect
 from src.extract.spider import OUTPUT_ROOT
 from src.load.postgres import load_publications, transform_staging
+from src.transform import enrich
+
+
+# Порядок важен: остальные витрины строятся из mart.publications
+MART_VIEWS = (
+    "mart.publications",
+    "mart.daily_publications",
+    "mart.category_weekly",
+    "mart.publication_keywords",
+    "mart.brand_mentions",
+    "mart.source_health",
+)
 
 
 EXTRACT_TIMEOUT = 30 * 60
@@ -31,14 +43,16 @@ def make_run_id(airflow_run_id: str) -> str:
 
 def start_run(run_id: str, airflow_run_id: str | None = None,
               only: list[str] | None = None) -> list[str]:
+    configs = load_sources()
     sources = [
-        source_id for source_id, cfg in load_sources().items()
+        source_id for source_id, cfg in configs.items()
         if cfg["enabled"] and (not only or source_id in only)
     ]
     if not sources:
         raise ValueError("no enabled sources to run")
 
     with connect() as conn:
+        sync_sources(conn, configs)
         conn.execute(
             """
             INSERT INTO ops.pipeline_runs (run_id, airflow_run_id, status, sources_total)
@@ -49,6 +63,26 @@ def start_run(run_id: str, airflow_run_id: str | None = None,
             (run_id, airflow_run_id, len(sources)),
         )
     return sources
+
+
+def sync_sources(conn, configs: dict[str, dict]) -> None:
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO ops.sources (source_id, name, source_type, start_url, enabled)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (source_id) DO UPDATE SET
+                name = EXCLUDED.name,
+                source_type = EXCLUDED.source_type,
+                start_url = EXCLUDED.start_url,
+                enabled = EXCLUDED.enabled,
+                updated_at = NOW()
+            """,
+            [
+                (sid, cfg.get("name", sid), cfg.get("source_type"), cfg["start_urls"][0], cfg["enabled"])
+                for sid, cfg in configs.items()
+            ],
+        )
 
 
 def extract_source(source_id: str, run_id: str, attempt: int = 1) -> dict:
@@ -167,28 +201,50 @@ def transform_run(run_id: str) -> int:
     return changed
 
 
+def enrich_run(run_id: str) -> int:
+    with connect() as conn:
+        rows = enrich.run(conn)
+        conn.execute(
+            "UPDATE ops.pipeline_runs SET enriched_rows = %s WHERE run_id = %s",
+            (rows, run_id),
+        )
+    return rows
+
+
+def refresh_marts(run_id: str) -> None:
+    with connect() as conn:
+        for view in MART_VIEWS:
+            conn.execute(f"REFRESH MATERIALIZED VIEW {view}")
+        conn.execute(
+            "UPDATE ops.pipeline_runs SET marts_refreshed_at = NOW() WHERE run_id = %s",
+            (run_id,),
+        )
+    log.info("витрины обновлены: %s", len(MART_VIEWS))
+
+
 def finish_run(run_id: str) -> str:
     """Итоговый бизнес-статус запуска.
 
-    success - все источники success и STAGING обновлён;
-    partial_success - хотя бы один источник success и STAGING обновлён;
+    success - все источники success, STAGING и витрины обновлены;
+    partial_success - хотя бы один источник success, STAGING и витрины обновлены;
     failed - остальное.
     """
     with connect() as conn:
         row = conn.execute(
-            "SELECT sources_total, transformed_at FROM ops.pipeline_runs WHERE run_id = %s",
+            "SELECT sources_total, transformed_at, marts_refreshed_at "
+            "FROM ops.pipeline_runs WHERE run_id = %s",
             (run_id,),
         ).fetchone()
         if row is None:
             log.error("run %s was not registered in ops.pipeline_runs", run_id)
             return "failed"
-        total, transformed_at = row
+        total, transformed_at, marts_refreshed_at = row
         success = conn.execute(
             "SELECT COUNT(*) FROM ops.source_runs WHERE run_id = %s AND status = 'success'",
             (run_id,),
         ).fetchone()[0]
 
-        if transformed_at is None or success == 0:
+        if transformed_at is None or marts_refreshed_at is None or success == 0:
             status = "failed"
         elif success == total:
             status = "success"
@@ -220,6 +276,8 @@ def main():
     try:
         load_run(args.run_id)
         transform_run(args.run_id)
+        enrich_run(args.run_id)
+        refresh_marts(args.run_id)
     finally:
         status = finish_run(args.run_id)
 

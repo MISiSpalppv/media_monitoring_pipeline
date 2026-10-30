@@ -50,6 +50,14 @@ def media_monitoring_elt():
     def transform_staging(**context) -> int:
         return pipeline.transform_run(pipeline.make_run_id(context["run_id"]))
 
+    @task
+    def enrich_staging(**context) -> int:
+        return pipeline.enrich_run(pipeline.make_run_id(context["run_id"]))
+
+    @task
+    def refresh_marts(**context) -> None:
+        pipeline.refresh_marts(pipeline.make_run_id(context["run_id"]))
+
     @task(trigger_rule="all_done")
     def finish(**context) -> str:
         status = pipeline.finish_run(pipeline.make_run_id(context["run_id"]))
@@ -59,8 +67,14 @@ def media_monitoring_elt():
 
     sources = start()
     extracted = extract.expand(source_id=sources)
-    staged = transform_staging()
-    extracted >> load_raw() >> staged >> finish()
+    (
+        extracted
+        >> load_raw()
+        >> transform_staging()
+        >> enrich_staging()
+        >> refresh_marts()
+        >> finish()
+    )
 
 
 media_monitoring_elt()

@@ -25,6 +25,7 @@ services:
       - ./src:/opt/airflow/src:ro
       - ./sql:/opt/airflow/sql:ro
       - ./sources.yaml:/opt/airflow/sources.yaml:ro
+      - ./analytics.yaml:/opt/airflow/analytics.yaml:ro
       - ./data:/opt/airflow/data
 
     depends_on:

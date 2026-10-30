@@ -87,6 +87,8 @@ sources:
       text: [css, trafilatura]
       author: [css, trafilatura]
       published_at: [css, trafilatura]
+    text_cut_markers:
+      - Сообщение отредактировал
 
   - id: otzovik_banks
     name: Отзовик, банки
