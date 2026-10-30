@@ -12,7 +12,7 @@ sources.yaml -> PublicationSpider(source_id)
              -> data/processed/<run_id>/<source_id>.jsonl + summary.json
              -> raw.publications (версии) -> staging.publications
              -> enrich: категории, бренды, ключевые слова, почти-дубли (analytics.yaml)
-             -> mart.* (materialized views)
+             -> mart.* (materialized views) -> дашборд Streamlit
              -> ops.source_runs, ops.pipeline_runs (статусы запусков)
 ```
 
@@ -20,7 +20,7 @@ sources.yaml -> PublicationSpider(source_id)
 
 ```bash
 cp .env.example .env    # задать пароль
-docker compose -f compose.yaml -f compose.airflow.yaml up -d
+docker compose -f compose.yaml -f compose.airflow.yaml -f compose.dashboard.yaml up -d
 python -m src.db.migrate
 ```
 
@@ -31,6 +31,7 @@ python -m src.db.migrate
 Если том уже существовал без неё: `docker exec media_postgres createdb -U media_user airflow`.
 
 Airflow UI: http://localhost:8080, DAG `media_monitoring_elt`.
+Дашборд: http://localhost:8501 (локально: `streamlit run dashboard/app.py`).
 
 Без Airflow тот же пайплайн запускается так:
 
@@ -151,6 +152,24 @@ Europe/Moscow, задаётся полем `timezone`. Относительны�
 
 `mart.source_health` строится от справочника `ops.sources`, поэтому недоступный источник
 виден с нулём публикаций и причиной, а не пропадает из отчётов.
+
+## Дашборд
+
+`dashboard/app.py` читает только витрины `mart.*` и `ops.pipeline_runs`.
+
+- Фильтры: период, источники, основная категория, учёт почти-дублей. Период можно считать
+  по дате публикации или по дате первого сбора: у тем 4PDA дата публикации - дата создания
+  темы, часто многолетней давности.
+- Показатели: число публикаций, источники с данными, доступность источников по последнему
+  запуску, публикации с упоминанием вендоров защитного ПО, средняя оценка в отзывах.
+- Вкладки: динамика по дням/неделям/месяцам/годам и по источникам; темы и ключевые слова,
+  тепловая карта «тема x источник»; упоминания брендов с фильтром по группе; состояние
+  источников с причинами недоступности; список публикаций с поиском и карточкой (полный
+  текст, темы, бренды, ключевые слова, ссылка на оригинал).
+
+Недоступные источники не подменяются нулями на графиках: они видны во вкладке
+«Источники» со статусом и причиной, а показатель доступности учитывает все источники
+из конфига. Данные кэшируются на 5 минут.
 
 ## Статусы
 
