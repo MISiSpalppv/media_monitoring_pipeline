@@ -119,8 +119,11 @@ sources:
       title: [css, trafilatura]
       author: [css, trafilatura]
       published_at: [css, trafilatura]
+    # строки таблицы характеристик ("| Год посещения | 2026 |") Trafilatura
+    # добавляет в текст отзыва
     text_drop_lines:
       - '^Отзыв: '
+      - '^\|'
 
   - id: dzen_news_computers
     name: Дзен Новости, рубрика «Компьютеры»

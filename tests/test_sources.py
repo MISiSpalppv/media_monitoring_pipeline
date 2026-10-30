@@ -83,6 +83,8 @@ def test_otzovik_review(review, title, author, rating):
     assert pub.author == author
     assert pub.published_at == "2026-02-08T00:00:00+03:00"
     assert pub.text.startswith("Достоинства:")
+    # таблица характеристик страницы в текст не попадает
+    assert "|" not in pub.text
     assert pub.extraction["text"] == "trafilatura"
     # оценка из отзыва, а не средняя по банку
     assert pub.metadata == {"product": "Онлайн банк Сбера", "rating": rating}

@@ -102,7 +102,8 @@ def keyword_candidates(title: str | None, text: str | None, stop: set[str]) -> l
         if HAS_DIGIT.search(word):
             continue
         lemma, tag = parse_word(word)
-        if tag in KEYWORD_TAGS and len(lemma) >= 3 and lemma not in stop:
+        # длинные склейки - это хэштеги вида #когданадовзятьмоиденьги
+        if tag in KEYWORD_TAGS and 3 <= len(lemma) <= 20 and lemma not in stop:
             result.append((lemma, tag))
     return result
 
