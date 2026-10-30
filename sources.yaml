@@ -64,3 +64,83 @@ sources:
       text: [css, trafilatura]
       author: [css, trafilatura]
       published_at: [css, trafilatura]
+
+  - id: fourpda_security
+    name: 4PDA, форум «Безопасность»
+    source_type: forum
+    start_urls:
+      - https://4pda.to/forum/index.php?showforum=320
+    # Публикация - тема форума, её первый пост (шапка). Ответы в темах
+    # не собираются: для этого нужен адаптер, отдающий несколько записей
+    # со страницы.
+    discovery:
+      mode: links
+      link_pattern: '^https://4pda\.to/forum/index\.php\?showtopic=\d+$'
+    selectors:
+      title: .topic_title_post
+      text: div[data-post] .post_body
+      author: div[data-post] .post_nick a::text
+      published_at: div[data-post] .post_date::text
+    # Trafilatura на страницах тем берёт случайный пост и заголовок "4PDA"
+    field_priority:
+      title: [css, trafilatura]
+      text: [css, trafilatura]
+      author: [css, trafilatura]
+      published_at: [css, trafilatura]
+
+  - id: otzovik_banks
+    name: Отзовик, банки
+    source_type: reviews
+    start_urls:
+      - https://otzovik.com/money_systems/banks/
+    download_delay: 5
+    # Каталог банков -> страница банка -> отзыв. max_pages считает все
+    # страницы-листинги: каталог и 5 страниц банков.
+    max_pages: 6
+    discovery:
+      mode: links
+      follow_pattern: '^https://otzovik\.com/reviews/[^/?#]+/$'
+      link_pattern: '^https://otzovik\.com/review_\d+\.html$'
+    block_markers:
+      - capt4a
+    selectors:
+      title: .summary
+      text: .review-body
+      author: .user-login
+      published_at: '[itemprop="datePublished"]::attr(content)'
+    metadata_selectors:
+      product: h1.product-name
+      rating: '[itemprop="reviewRating"] [itemprop="ratingValue"]::attr(content)'
+    # Текст Trafilatura включает "Достоинства" и "Недостатки", в CSS их нет.
+    # Заголовок и автор у неё склеены с названием сайта и счётчиками.
+    field_priority:
+      title: [css, trafilatura]
+      author: [css, trafilatura]
+      published_at: [css, trafilatura]
+    text_drop_lines:
+      - '^Отзыв: '
+
+  - id: dzen_news_computers
+    name: Дзен Новости, рубрика «Компьютеры»
+    source_type: news
+    start_urls:
+      - https://dzen.ru/news/rubric/computers
+    # На 30.10.2026 запрос без JavaScript перенаправляется на
+    # sso.passport.yandex.ru (скриптовая авторизация Яндекса), контента
+    # рубрики в ответе нет. Источник получает статус unavailable.
+    # Шаблон ссылок не проверен на реальной странице.
+    discovery:
+      mode: links
+      link_pattern: '^https://dzen\.ru/news/story/'
+
+  - id: drive2_featured
+    name: Drive2, подборка тем
+    source_type: blog
+    start_urls:
+      - https://www.drive2.ru/featured-topics/CVQ0gEAAcHQ/
+    # robots.txt drive2.ru: "User-Agent: *  Disallow: /" (разрешены только
+    # поисковые боты). Scrapy с ROBOTSTXT_OBEY не отправляет запрос,
+    # источник получает статус unavailable.
+    discovery:
+      mode: links
+      link_pattern: '^https://www\.drive2\.ru/l/\d+/$'

@@ -38,6 +38,7 @@ def extract_publication(html: str, url: str, fetched_at: datetime, cfg: dict,
         candidates["adapter"] = ADAPTERS[adapter](sel, url)
 
     timezone = cfg.get("timezone", "Europe/Moscow")
+    date_order = cfg.get("date_order", "DMY")
     min_text_length = cfg.get("min_text_length", 200)
     extraction = {}
 
@@ -52,7 +53,8 @@ def extract_publication(html: str, url: str, fetched_at: datetime, cfg: dict,
     )
     text, extraction["text"] = pick(
         "text", candidates, priority("text"),
-        prepare=lambda v: prepare_text(v, title, cfg.get("text_cut_markers", [])),
+        prepare=lambda v: prepare_text(v, title, cfg.get("text_cut_markers", []),
+                                       cfg.get("text_drop_lines", [])),
         check=lambda v: len(v) >= min_text_length,
     )
     author, extraction["author"] = pick(
@@ -63,10 +65,10 @@ def extract_publication(html: str, url: str, fetched_at: datetime, cfg: dict,
     published_raw, extraction["published_at"] = pick(
         "published_at", candidates, priority("published_at"),
         prepare=collapse_spaces,
-        check=lambda v: parse_date(v, fetched_at, timezone) is not None,
+        check=lambda v: parse_date(v, fetched_at, timezone, date_order) is not None,
     )
 
-    published = parse_date(published_raw, fetched_at, timezone)
+    published = parse_date(published_raw, fetched_at, timezone, date_order)
     published_at = published.isoformat() if published else None
 
     pub = Publication(
@@ -82,6 +84,7 @@ def extract_publication(html: str, url: str, fetched_at: datetime, cfg: dict,
         published_at_raw=published_raw,
         source_type=cfg.get("source_type"),
         extraction={k: v for k, v in extraction.items() if v},
+        metadata=css_values(sel, cfg.get("metadata_selectors", {})),
     )
     pub.content_hash = content_hash(url, title, author, text, published_at)
     pub.quality_flags = quality_flags(pub, published, fetched_at, cfg)
@@ -130,15 +133,25 @@ def trafilatura_fields(html: str, url: str) -> dict:
 
 
 def css_fields(sel: Selector, selectors: dict) -> dict:
+    return css_values(sel, {f: selectors[f] for f in FIELDS if selectors.get(f)})
+
+
+def css_values(sel: Selector, selectors: dict) -> dict:
+    """Значения по CSS. Берётся первый найденный элемент: на форумах и
+    в отзывах селектор поста совпадает со всеми постами страницы."""
     fields = {}
-    for field in FIELDS:
-        selector = selectors.get(field)
-        if not selector:
-            continue
-        # без явного ::text / ::attr берём весь текст внутри элемента
-        if "::" not in selector:
-            selector += " ::text"
-        parts = [part.strip() for part in sel.css(selector).getall()]
+    for field, selector in selectors.items():
+        base, _, pseudo = selector.partition("::")
+        element = sel.css(base.strip())[:1]
+        if pseudo == "text":
+            # только собственный текст элемента, без вложенных тегов
+            parts = element.xpath("./text()").getall()
+        elif pseudo:
+            parts = element.css("::" + pseudo).getall()
+        else:
+            parts = element.xpath(".//text()").getall()
+
+        parts = [part.strip() for part in parts]
         fields[field] = " ".join(part for part in parts if part) or None
     return fields
 
@@ -154,7 +167,8 @@ def find_canonical(sel: Selector, url: str) -> str | None:
     return href
 
 
-def prepare_text(text: str, title: str | None, cut_markers: list[str]) -> str | None:
+def prepare_text(text: str, title: str | None, cut_markers: list[str],
+                 drop_lines: list[str] = ()) -> str | None:
     text = clean_text(text)
     if not text:
         return None
@@ -164,9 +178,11 @@ def prepare_text(text: str, title: str | None, cut_markers: list[str]) -> str | 
         if pos != -1:
             text = text[:pos]
 
+    drop = [re.compile(pattern) for pattern in drop_lines]
     lines = [
         line for line in text.split("\n")
         if not (len(line) < JUNK_LINE_MAX_LEN and JUNK_LINE.search(line))
+        and not any(regex.search(line) for regex in drop)
     ]
     # Trafilatura часто повторяет заголовок первой строкой текста
     if title and lines and collapse_spaces(lines[0]) == title:

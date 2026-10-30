@@ -13,6 +13,7 @@ from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import scrapy
 from scrapy.crawler import CrawlerProcess
@@ -60,21 +61,28 @@ class PublicationSpider(scrapy.Spider):
         self.http_errors = Counter()
         self.other_errors = Counter()
         self.block_reason = None
+        self.domain = urlparse(self.cfg["start_urls"][0]).netloc.removeprefix("www.")
+        self.listing_pages_requested = 0
+        self.seen_listings = set()
         self.seen_urls = set()
         self.accepted = []
         self.rejected = []
 
     async def start(self):
         for url in self.cfg["start_urls"]:
-            yield self.listing_request(url, page=1)
+            yield self.listing_request(url)
 
-    def listing_request(self, url, page):
+    def listing_request(self, url):
+        self.listing_pages_requested += 1
         return scrapy.Request(
             url,
             callback=self.parse_listing,
             errback=self.on_error,
-            meta={"page": page, "kind": "listing"},
+            meta={"page": self.listing_pages_requested, "kind": "listing"},
         )
+
+    def can_request_listing(self) -> bool:
+        return self.listing_pages_requested < self.cfg["max_pages"]
 
     def parse_listing(self, response):
         if self.is_blocked(response):
@@ -83,14 +91,13 @@ class PublicationSpider(scrapy.Spider):
 
         discovery = self.cfg["discovery"]
         mode = discovery["mode"]
-        pattern = discovery.get("link_pattern")
 
         if mode == "links":
             area = discovery.get("area")
             html = "".join(response.css(area).getall()) if area else response.text
-            links = discover_links(html, response.url, pattern)
+            links = discover_links(html, response.url, discovery.get("link_pattern"))
         else:
-            links = feed_links(response.text, mode, pattern)
+            links = feed_links(response.text, mode, discovery.get("link_pattern"))
 
         self.logger.info("%s: страница %s, найдено ссылок: %s",
                          self.source_id, response.meta["page"], len(links))
@@ -108,12 +115,21 @@ class PublicationSpider(scrapy.Spider):
                 meta={"kind": "publication"},
             )
 
+        # Промежуточные листинги: например, каталог банков -> страница банка -> отзыв
+        follow_pattern = discovery.get("follow_pattern")
+        if mode == "links" and follow_pattern:
+            for link in discover_links(html, response.url, follow_pattern):
+                if not self.can_request_listing():
+                    break
+                if link not in self.seen_listings:
+                    self.seen_listings.add(link)
+                    yield self.listing_request(link)
+
         next_selector = discovery.get("next_page")
-        page = response.meta["page"]
-        if next_selector and page < self.cfg["max_pages"]:
+        if next_selector and self.can_request_listing():
             next_url = response.css(next_selector).get()
             if next_url:
-                yield self.listing_request(response.urljoin(next_url), page + 1)
+                yield self.listing_request(response.urljoin(next_url))
 
     def parse_publication(self, response):
         if self.is_blocked(response):
@@ -134,6 +150,13 @@ class PublicationSpider(scrapy.Spider):
             self.accepted.append(asdict(pub))
 
     def is_blocked(self, response) -> bool:
+        # Редирект на чужой домен (авторизация, антибот) вместо контента
+        host = urlparse(response.url).netloc
+        if host != self.domain and not host.endswith("." + self.domain):
+            self.block_reason = f"redirected to {host}"
+            self.logger.warning("%s: %s", self.source_id, self.block_reason)
+            return True
+
         markers = self.cfg.get("block_markers", [])
         text = response.text.lower()
         for marker in markers:
@@ -150,7 +173,7 @@ class PublicationSpider(scrapy.Spider):
             self.http_errors[str(code)] += 1
             self.logger.warning("%s: HTTP %s %s", self.source_id, code, request.url)
         elif failure.check(IgnoreRequest):
-            self.other_errors["robots_forbidden"] += 1
+            self.other_errors[f"robots_forbidden:{urlparse(request.url).netloc}"] += 1
             self.logger.warning("%s: запрещено robots.txt %s", self.source_id, request.url)
         else:
             name = failure.type.__name__

@@ -42,7 +42,8 @@ def canonical_url(url: str) -> str:
     ).geturl()
 
 
-def parse_date(raw: str | None, fetched_at: datetime, timezone: str) -> datetime | None:
+def parse_date(raw: str | None, fetched_at: datetime, timezone: str,
+               date_order: str = "DMY") -> datetime | None:
     """Разбирает дату публикации.
 
     Относительные даты ("вчера в 14:30", "5 минут назад") считаются
@@ -52,14 +53,28 @@ def parse_date(raw: str | None, fetched_at: datetime, timezone: str) -> datetime
         return None
 
     tz = ZoneInfo(timezone)
+    raw = raw.strip()
+
+    # ISO 8601 (meta-теги, datetime у <time>) dateparser с DATE_ORDER=DMY не разбирает
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        parsed = None
+    if parsed is not None:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=tz)
+        return parsed.astimezone(tz)
+
     parsed = dateparser.parse(
-        raw.strip(),
+        raw,
         languages=["ru", "en"],
         settings={
             "TIMEZONE": timezone,
             "RETURN_AS_TIMEZONE_AWARE": True,
             "RELATIVE_BASE": fetched_at.astimezone(tz).replace(tzinfo=None),
             "PREFER_DATES_FROM": "past",
+            # 05.01.25 на русскоязычных сайтах это 5 января, а не 1 мая
+            "DATE_ORDER": date_order,
         },
     )
     if parsed is None:
